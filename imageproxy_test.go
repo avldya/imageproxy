@@ -12,8 +12,6 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/gregjones/httpcache"
 )
 
 func TestAllowed(t *testing.T) {
@@ -72,7 +70,7 @@ func TestAllowed(t *testing.T) {
 			t.Errorf("error parsing url %q: %v", tt.url, err)
 		}
 		req := &Request{u, tt.options, tt.request}
-		if got, want := p.allowed(req), tt.allowed; got != want {
+		if got, want := p.allowed(req), tt.allowed; (got == nil) != want {
 			t.Errorf("allowed(%q) returned %v, want %v.\nTest struct: %#v", req, got, want, tt)
 		}
 	}
@@ -206,15 +204,6 @@ func TestCheck304(t *testing.T) {
 	}
 }
 
-// make sure that the proxy is passed to transport in order
-// to access the command line flags.
-func TestProxyPointer(t *testing.T) {
-	p := NewProxy(nil, nil)
-	if p.Client.Transport.(*httpcache.Transport).Transport.(*TransformingTransport).Proxy != p {
-		t.Errorf("Transport doesnt have proxy pointer")
-	}
-}
-
 // testTransport is an http.RoundTripper that returns certained canned
 // responses for particular requests.
 type testTransport struct{}
@@ -236,7 +225,7 @@ func (t testTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		img := new(bytes.Buffer)
 		png.Encode(img, m)
 
-		raw = fmt.Sprintf("HTTP/1.1 200 OK\nContent-Length: %d\n\n%v", len(img.Bytes()), img.Bytes())
+		raw = fmt.Sprintf("HTTP/1.1 200 OK\nContent-Length: %d\n\n%s", len(img.Bytes()), img.Bytes())
 	default:
 		raw = "HTTP/1.1 404 Not Found\n\n"
 	}

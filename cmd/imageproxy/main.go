@@ -27,6 +27,7 @@ import (
 	"github.com/gregjones/httpcache"
 	"github.com/gregjones/httpcache/diskcache"
 	"github.com/peterbourgon/diskv"
+	"sourcegraph.com/sourcegraph/s3cache"
 	"willnorris.com/go/imageproxy"
 )
 
@@ -43,8 +44,9 @@ var addr = flag.String("addr", "localhost:8080", "TCP address to listen on")
 var whitelist = flag.String("whitelist", "", "comma separated list of allowed remote hosts")
 var referrers = flag.String("referrers", "", "comma separated list of allowed referring hosts")
 var baseURL = flag.String("baseURL", "", "default base URL for relative remote URLs")
-var cacheDir = flag.String("cacheDir", "", "directory to use for file cache")
-var cacheSize = flag.Uint64("cacheSize", 100, "maximum size of file cache (in MB)")
+var cache = flag.String("cache", "", "location to cache images (see https://github.com/willnorris/imageproxy#cache)")
+var cacheDir = flag.String("cacheDir", "", "(Deprecated; use 'cache' instead) directory to use for file cache")
+var cacheSize = flag.Uint64("cacheSize", 0, "Deprecated: this flag does nothing")
 var signatureKey = flag.String("signatureKey", "", "HMAC key used in calculating request signatures")
 var scaleUp = flag.Bool("scaleUp", false, "allow images to scale beyond their original dimensions")
 var version = flag.Bool("version", false, "print version information")
@@ -57,15 +59,9 @@ func main() {
 		return
 	}
 
-	var c httpcache.Cache
-	if *cacheDir != "" {
-		d := diskv.New(diskv.Options{
-			BasePath:     *cacheDir,
-			CacheSizeMax: *cacheSize * 1024 * 1024,
-		})
-		c = diskcache.NewWithDiskv(d)
-	} else if *cacheSize != 0 {
-		c = httpcache.NewMemoryCache()
+	c, err := parseCache()
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	p := imageproxy.NewProxy(nil, c)
@@ -103,8 +99,44 @@ func main() {
 	}
 
 	fmt.Printf("imageproxy (version %v) listening on %s\n", VERSION, server.Addr)
-	err := server.ListenAndServe()
-	if err != nil {
-		log.Fatal("ListenAndServe: ", err)
+	log.Fatal(server.ListenAndServe())
+}
+
+// parseCache parses the cache-related flags and returns the specified Cache implementation.
+func parseCache() (imageproxy.Cache, error) {
+	if *cache == "" {
+		if *cacheDir != "" {
+			return diskCache(*cacheDir), nil
+		}
+		return nil, nil
 	}
+
+	if *cache == "memory" {
+		return httpcache.NewMemoryCache(), nil
+	}
+
+	u, err := url.Parse(*cache)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing cache flag: %v", err)
+	}
+
+	switch u.Scheme {
+	case "s3":
+		u.Scheme = "https"
+		return s3cache.New(u.String()), nil
+	case "file":
+		fallthrough
+	default:
+		return diskCache(u.Path), nil
+	}
+}
+
+func diskCache(path string) *diskcache.Cache {
+	d := diskv.New(diskv.Options{
+		BasePath: path,
+
+		// For file "c0ffee", store file as "c0/ff/c0ffee"
+		Transform: func(s string) []string { return []string{s[0:2], s[2:4]} },
+	})
+	return diskcache.NewWithDiskv(d)
 }

@@ -131,7 +131,8 @@ Install the package using:
 (Note that go1.2 and earlier may have trouble fetching the package with `go
 get`).
 
-Once installed, ensure `$GOPATH/bin` is in your `$PATH`, then run the proxy using:
+Once installed, ensure `$GOPATH/bin` is in your `$PATH`, then run the proxy
+using:
 
     imageproxy
 
@@ -140,26 +141,36 @@ whitelist (meaning any remote URL can be proxied).  Test this by navigating to
 <http://localhost:8080/500/https://octodex.github.com/images/codercat.jpg> and
 you should see a 500px square coder octocat.
 
-### Disk cache ###
+### Cache ###
 
-By default, the imageproxy command uses an in-memory cache that will grow
-unbounded.  To cache images on disk instead, include the `cacheDir` flag:
+By default, the imageproxy command does not cache responses, but caching can be
+enabled using the `-cache` flag.  It supports the following values:
 
-    imageproxy -cacheDir /tmp/imageproxy
+ - `memory` - uses an in-memory cache.  (This can exhaust your system's
+   available memory and is not recommended for production systems)
+ - directory on local disk (e.g. `/tmp/imageproxy`) - will cache images
+   on disk
+ - s3 URL (e.g. `s3://s3-us-west-2.amazonaws.com/my-bucket`) - will cache
+   images on Amazon S3.  This requires either an IAM role and instance profile
+   with access to your your bucket or `AWS_ACCESS_KEY_ID` and `AWS_SECRET_KEY`
+   environmental parameters set.
+
+For example, to cache files on disk in the `/tmp/imageproxy` directory:
+
+    imageproxy -cache /tmp/imageproxy
 
 Reload the [codercat URL][], and then inspect the contents of
-`/tmp/imageproxy`.  There should be two files there, one for the original
-full-size codercat image, and one for the resized 500px version.
+`/tmp/imageproxy`.  Within the subdirectories, there should be two files, one
+for the original full-size codercat image, and one for the resized 500px
+version.
 
 [codercat URL]: http://localhost:8080/500/https://octodex.github.com/images/codercat.jpg
 
-By default the disk cache will grow to 100MB. You can change this size by using the `-cacheSize` flag. The following example will allow the cache to take up 500MB of space.
-
-    imageproxy -cacheDir /tmp/imageproxy -cacheSize 500
-
 ### Referrer Whitelist ###
 
-You can limit images to only be accessible for certain hosts in the HTTP referrer header. This may be useful to prevent others from hotlinking to images, and using your valuable bandwidth! It can be enabled be running:
+You can limit images to only be accessible for certain hosts in the HTTP
+referrer header, which can help prevent others from hotlinking to images. It can
+be enabled by running:
 
     imageproxy  -referrers example.com
 
@@ -221,7 +232,8 @@ needs... it's a very simple command.
 
 Typically, remote images to be proxied are specified as absolute URLs.
 However, if you commonly proxy images from a single source, you can provide a
-base URL and then specify remote images relative to that base.  Try it out by running:
+base URL and then specify remote images relative to that base.  Try it out by
+running:
 
     imageproxy -baseURL https://octodex.github.com/
 
@@ -233,7 +245,8 @@ specified, you can always provide the absolute URL of the image to be proxied.
 
 ### Scaling beyond original size ###
 
-By default, the imageproxy won't scale images beyond their original size. However, you can use the `scaleUp` command-line flag to allow this to happen:
+By default, the imageproxy won't scale images beyond their original size.
+However, you can use the `scaleUp` command-line flag to allow this to happen:
 
     imageproxy -scaleUp true
 
@@ -266,7 +279,8 @@ configuration.
 
 ## Deploying to Heroku ##
 
-It's easy to vendorize the dependencies with `Godep` and deploy to Heroku. Take a look at [this GitHub repo](https://github.com/oreillymedia/prototype-imageproxy)
+It's easy to vendorize the dependencies with `Godep` and deploy to Heroku. Take
+a look at [this GitHub repo](https://github.com/oreillymedia/prototype-imageproxy)
 
 ## Docker ##
 

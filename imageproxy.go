@@ -81,7 +81,7 @@ func NewProxy(transport http.RoundTripper, cache Cache) *Proxy {
 
 	client := new(http.Client)
 	client.Transport = &httpcache.Transport{
-		Transport:           &TransformingTransport{transport, client, &proxy},
+		Transport:           &TransformingTransport{transport, client},
 		Cache:               cache,
 		MarkCachedResponses: true,
 	}
@@ -105,10 +105,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !p.allowed(req) {
-		msg := fmt.Sprintf("request does not contain an allowed host or valid signature")
-		glog.Error(msg)
-		http.Error(w, msg, http.StatusForbidden)
+	// assign static settings from proxy to req.Options
+	req.Options.ScaleUp = p.ScaleUp
+
+	if err := p.allowed(req); err != nil {
+		glog.Error(err)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -147,33 +149,27 @@ func copyHeader(w http.ResponseWriter, r *http.Response, header string) {
 	}
 }
 
-// allowed returns whether the specified request is allowed because it matches
-// a host in the proxy whitelist or it has a valid signature.
-func (p *Proxy) allowed(r *Request) bool {
+// allowed determines whether the specified request contains an allowed
+// referrer, host, and signature.  It returns an error if the request is not
+// allowed.
+func (p *Proxy) allowed(r *Request) error {
 	if len(p.Referrers) > 0 && !validReferrer(p.Referrers, r.Original) {
-		glog.Infof("request not coming from allowed referrer: %v", r)
-		return false
+		return fmt.Errorf("request does not contain an allowed referrer: %v", r)
 	}
 
 	if len(p.Whitelist) == 0 && len(p.SignatureKey) == 0 {
-		return true // no whitelist or signature key, all requests accepted
+		return nil // no whitelist or signature key, all requests accepted
 	}
 
-	if len(p.Whitelist) > 0 {
-		if validHost(p.Whitelist, r.URL) {
-			return true
-		}
-		glog.Infof("request is not for an allowed host: %v", r)
+	if len(p.Whitelist) > 0 && validHost(p.Whitelist, r.URL) {
+		return nil
 	}
 
-	if len(p.SignatureKey) > 0 {
-		if validSignature(p.SignatureKey, r) {
-			return true
-		}
-		glog.Infof("request contains invalid signature: %v", r)
+	if len(p.SignatureKey) > 0 && validSignature(p.SignatureKey, r) {
+		return nil
 	}
 
-	return false
+	return fmt.Errorf("request does not contain an allowed host or valid signature: %v", r)
 }
 
 // validHost returns whether the host in u matches one of hosts.
@@ -192,12 +188,12 @@ func validHost(hosts []string, u *url.URL) bool {
 
 // returns whether the referrer from the request is in the host list.
 func validReferrer(hosts []string, r *http.Request) bool {
-	parsed, err := url.Parse(r.Header.Get("Referer"))
+	u, err := url.Parse(r.Header.Get("Referer"))
 	if err != nil { // malformed or blank header, just deny
 		return false
 	}
 
-	return validHost(hosts, parsed)
+	return validHost(hosts, u)
 }
 
 // validSignature returns whether the request signature is valid.
@@ -259,9 +255,6 @@ type TransformingTransport struct {
 	// used rather than Transport directly in order to ensure that
 	// responses are properly cached.
 	CachingClient *http.Client
-
-	// Proxy is used to access command line flag settings during roundtripping.
-	Proxy *Proxy
 }
 
 // RoundTrip implements the http.RoundTripper interface.
@@ -286,11 +279,6 @@ func (t *TransformingTransport) RoundTrip(req *http.Request) (*http.Response, er
 	}
 
 	opt := ParseOptions(req.URL.Fragment)
-
-	// assign static settings from proxy to options
-	if t.Proxy != nil {
-		opt.ScaleUp = t.Proxy.ScaleUp
-	}
 
 	img, err := Transform(b, opt)
 	if err != nil {
